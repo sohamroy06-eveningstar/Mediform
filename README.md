@@ -1,16 +1,96 @@
-# React + Vite
+# Mediform — Healthcare Appointment Booking UI
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A modern, responsive healthcare appointment booking and management interface built with **React, Vite, and Tailwind CSS**.
 
-Currently, two official plugins are available:
+Mediform provides a clean patient-focused experience for booking, viewing, editing, cancelling, filtering, and sorting healthcare appointments, along with medical document upload and preview support.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## ✨ Features
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- 📅 Book healthcare appointments
+- ✏️ Edit existing appointments
+- ❌ Cancel appointments with confirmation
+- 👨‍⚕️ Doctor selection
+- 🕒 Future date and time validation
+- 📝 Appointment reason and optional notes
+- 📋 Upcoming appointment section
+- 🕘 Consultation history
+- 🔎 Filter appointments by doctor and status
+- ↕️ Sort appointments by:
+  - Newest First
+  - Oldest First
+  - Doctor A → Z
+  - Doctor Z → A
+- 📎 Upload medical documents
+- 🖼️ Image preview support
+- 📄 PDF file support
+- 🗑️ Remove uploaded files
+- ✅ Real-time form validation
+- 🔔 SweetAlert2 success and confirmation feedback
+- 📱 Responsive mobile, tablet, and desktop layouts
+- ♿ Keyboard-friendly and accessible UI
+- 🎨 Modern healthcare-focused visual design
+- 💾 Local/mock appointment state with API-ready architecture
 
-## Expanding the ESLint configuration
+---
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## 🛠️ Tech Stack
+
+### Frontend
+
+- React
+- JavaScript
+- Vite
+- Tailwind CSS v4
+- Lucide React
+
+### Libraries
+
+- SweetAlert2
+
+### Architecture
+
+- React Context API
+- Custom React Hooks
+- Component-based architecture
+- Utility-based validation and date handling
+
+---
+
+## 📂 Project Structure
+
+```text
+src/
+├── Components/
+│   ├── AppointmentCard.jsx
+│   ├── AppointmentDetails.jsx
+│   ├── AppointmentForm.jsx
+│   ├── AppointmentList.jsx
+│   ├── BookingCTA.jsx
+│   ├── Footer.jsx
+│   ├── Header.jsx
+│   ├── MediaUploader.jsx
+│   └── UpcomingAppointment.jsx
+│
+├── context/
+│   ├── appointmentContext.js
+│   └── AppointmentProvider.jsx
+│
+├── data/
+│   └── Appointment.js
+│
+├── hooks/
+│   ├── useAppointmentContext.js
+│   └── useAppointments.js
+│
+├── pages/
+│   └── Dashboard.jsx
+│
+├── utils/
+│   ├── dateUtils.js
+│   └── validation.js
+│
+├── App.jsx
+├── index.css
+└── main.jsx
