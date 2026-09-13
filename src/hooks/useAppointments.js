@@ -4,46 +4,31 @@ function useAppointments() {
   const {
     appointments,
     setAppointments,
+    addAppointment,
+    updateAppointment,
+    cancelAppointment,
+    isLoading,
+    error,
   } = useAppointmentContext();
 
-  function addAppointment(appointment) {
-    setAppointments((currentAppointments) => [
-      ...currentAppointments,
-      appointment,
-    ]);
-  }
+ 
 
-   function updateAppointment(updatedAppointment) {
-    setAppointments((currentAppointments) =>
-      currentAppointments.map((appointment) =>
-        appointment.id === updatedAppointment.id
-          ? updatedAppointment
-          : appointment,
-      ),
+
+  function getAppointmentById(appointmentId) {
+    return appointments.find(
+      (appointment) => appointment.id === appointmentId,
     );
   }
-
-  function cancelAppointment(appointmentId) {
-  setAppointments((currentAppointments) =>
-    currentAppointments.filter(
-      (appointment) => appointment.id !== appointmentId,
-    ),
-  );
-}
-
-function getAppointmentById(appointmentId) {
-  return appointments.find(
-    (appointment) => appointment.id === appointmentId,
-  );
-}
 
   return {
     appointments,
     addAppointment,
-    updateAppointment,
     cancelAppointment,
     getAppointmentById,
     setAppointments,
+    updateAppointment,
+    isLoading,
+    error,
   };
 }
 

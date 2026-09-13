@@ -81,11 +81,11 @@ function AppointmentForm({
 
     try {
       // New media selected in the current form.
-      const newMedia = selectedMedia.map((item) => ({
-        url: item.previewUrl || "",
-        name: item.file.name,
-        type: item.file.type,
-      }));
+     const newMedia = selectedMedia.map((item) => ({
+  url: item.uploadedUrl || "",
+  name: item.name || item.file.name,
+  type: item.type || item.file.type,
+}));
 
       // Keep existing media when editing.
       const mediaUrls = [

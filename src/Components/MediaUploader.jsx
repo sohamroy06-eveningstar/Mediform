@@ -1,3 +1,5 @@
+const API_BASE_URL = "http://localhost:5000/api";
+
 import { useState } from "react";
 import { FileImage, FileText, Upload, X } from "lucide-react";
 
@@ -26,7 +28,7 @@ function MediaUploader({ onFilesChange }) {
     return "";
   }
 
-  function handleFileChange(event) {
+ async function handleFileChange(event) {
   const selectedFiles = Array.from(event.target.files || []);
 
   setError("");
@@ -41,14 +43,46 @@ function MediaUploader({ onFilesChange }) {
       continue;
     }
 
-    validFiles.push({
-      id: `${file.name}-${file.lastModified}`,
-      file,
-      previewUrl: URL.createObjectURL(file),
-    });
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch(
+        `${API_BASE_URL}/uploads`,
+        {
+          method: "POST",
+          body: formData,
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.message || "File upload failed.",
+        );
+      }
+
+      validFiles.push({
+        id: `${file.name}-${file.lastModified}`,
+        file,
+        previewUrl: URL.createObjectURL(file),
+        uploadedUrl: `http://localhost:5000${data.data.url}`,
+        name: data.data.name,
+        type: data.data.type,
+      });
+    } catch (error) {
+      console.error("Media upload failed:", error);
+
+      setError(
+        `${file.name}: Unable to upload file.`,
+      );
+    }
   }
 
-  const existingIds = new Set(files.map((item) => item.id));
+  const existingIds = new Set(
+    files.map((item) => item.id),
+  );
 
   const newFiles = validFiles.filter(
     (item) => !existingIds.has(item.id),
@@ -57,12 +91,10 @@ function MediaUploader({ onFilesChange }) {
   const updatedFiles = [...files, ...newFiles];
 
   setFiles(updatedFiles);
-
   onFilesChange?.(updatedFiles);
 
   event.target.value = "";
 }
-
   function removeFile(fileId) {
     setFiles((currentFiles) => {
       const fileToRemove = currentFiles.find(

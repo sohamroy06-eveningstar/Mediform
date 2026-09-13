@@ -13,6 +13,8 @@ function Dashboard() {
     appointments,
     addAppointment,
      setAppointments,
+     updateAppointment,
+       cancelAppointment,
   } = useAppointments();
 
   const [selectedAppointment, setSelectedAppointment] = useState(null);
@@ -42,21 +44,36 @@ function Dashboard() {
     setIsBookingOpen(true);
   }
 
-  function handleBookingSubmit(appointment) {
-    addAppointment(appointment);
+  async function handleBookingSubmit(appointment) {
+  try {
+    await addAppointment(appointment);
+
     setIsBookingOpen(false);
 
     Swal.fire({
-    toast: true,
-    position: "top-end",
-    icon: "success",
-    title: "Appointment booked successfully.",
-    showConfirmButton: false,
-    timer: 2500,
-    timerProgressBar: true,
-  });
-  }
+      toast: true,
+      position: "top-end",
+      icon: "success",
+      title: "Appointment booked successfully.",
+      showConfirmButton: false,
+      timer: 2500,
+      timerProgressBar: true,
+    });
+  } catch (error) {
+    console.error("Booking failed:", error);
 
+    Swal.fire({
+      toast: true,
+      position: "top-end",
+      icon: "error",
+      title: "Unable to book appointment.",
+      text: error.message,
+      showConfirmButton: false,
+      timer: 3000,
+      timerProgressBar: true,
+    });
+  }
+}
   function handleSelect(appointment) {
     setSelectedAppointment(appointment);
   }
@@ -66,26 +83,35 @@ function handleEdit(appointment) {
   setEditingAppointment(appointment);
 }
 
-function handleEditSubmit(updatedAppointment) {
-  setAppointments((currentAppointments) =>
-    currentAppointments.map((appointment) =>
-      appointment.id === updatedAppointment.id
-        ? updatedAppointment
-        : appointment,
-    ),
-  );
+async function handleEditSubmit(updatedAppointment) {
+  try {
+    await updateAppointment(updatedAppointment);
 
-  setEditingAppointment(null);
+    setEditingAppointment(null);
 
-  Swal.fire({
-    toast: true,
-    position: "top-end",
-    icon: "success",
-    title: "Appointment updated successfully.",
-    showConfirmButton: false,
-    timer: 2500,
-    timerProgressBar: true,
-  });
+    Swal.fire({
+      toast: true,
+      position: "top-end",
+      icon: "success",
+      title: "Appointment updated successfully.",
+      showConfirmButton: false,
+      timer: 2500,
+      timerProgressBar: true,
+    });
+  } catch (error) {
+    console.error("Update appointment failed:", error);
+
+    Swal.fire({
+      toast: true,
+      position: "top-end",
+      icon: "error",
+      title: "Unable to update appointment.",
+      text: error.message,
+      showConfirmButton: false,
+      timer: 3000,
+      timerProgressBar: true,
+    });
+  }
 }
 
   async function handleCancel(appointment) {
@@ -103,24 +129,34 @@ function handleEditSubmit(updatedAppointment) {
     return;
   }
 
-  setAppointments((currentAppointments) =>
-    currentAppointments.filter(
-      (currentAppointment) =>
-        currentAppointment.id !== appointment.id,
-    ),
-  );
+  try {
+    await cancelAppointment(appointment.id);
 
-  setSelectedAppointment(null);
+    setSelectedAppointment(null);
 
-  Swal.fire({
-    toast: true,
-    position: "top-end",
-    icon: "success",
-    title: "Appointment cancelled.",
-    showConfirmButton: false,
-    timer: 2500,
-    timerProgressBar: true,
-  });
+    Swal.fire({
+      toast: true,
+      position: "top-end",
+      icon: "success",
+      title: "Appointment cancelled.",
+      showConfirmButton: false,
+      timer: 2500,
+      timerProgressBar: true,
+    });
+  } catch (error) {
+    console.error("Cancel appointment failed:", error);
+
+    Swal.fire({
+      toast: true,
+      position: "top-end",
+      icon: "error",
+      title: "Unable to cancel appointment.",
+      text: error.message,
+      showConfirmButton: false,
+      timer: 3000,
+      timerProgressBar: true,
+    });
+  }
 }
 
   return (
