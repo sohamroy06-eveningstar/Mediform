@@ -29,3 +29,6 @@ dist-ssr
 # Uploaded files
 uploads/
 
+mediform_backup.sql
+.vercel
+.env*

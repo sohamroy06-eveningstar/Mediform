@@ -11,6 +11,9 @@ function AppointmentForm({
   initialData = null,
 }) {
   const { appointments } = useAppointments();
+  const [appointmentId] = useState(
+  () => initialData?.id || `MED-${Date.now()}`,
+);
 
   const doctors = useMemo(() => {
     return [
@@ -81,8 +84,8 @@ function AppointmentForm({
 
     try {
       // New media selected in the current form.
-     const newMedia = selectedMedia.map((item) => ({
-  url: item.uploadedUrl || "",
+      const newMedia = selectedMedia.map((item) => ({
+  pathname: item.pathname || "",
   name: item.name || item.file.name,
   type: item.type || item.file.type,
 }));
@@ -94,27 +97,22 @@ function AppointmentForm({
       ];
 
       const appointmentData = {
-        id:
-          initialData?.id ||
-          `MED-${Date.now()}`,
+  id: appointmentId,
 
-        patientName:
-          formFields.patientName.trim(),
+  patientName: formFields.patientName.trim(),
 
-        doctorName:
-          formFields.doctorName,
+  doctorName: formFields.doctorName,
 
-        date:
-          formFields.date,
+  date: formFields.date,
 
-        time:
-          formFields.time,
+  time: formFields.time,
 
-        reason:
-          formFields.reason.trim(),
+  reason: formFields.reason.trim(),
 
-        mediaUrls,
-      };
+  notes: formFields.notes.trim(),
+
+  mediaUrls,
+};
 
       await onSubmit(appointmentData);
     } catch (error) {
@@ -363,6 +361,7 @@ function AppointmentForm({
 
             <div className="mt-2">
               <MediaUploader
+              appointmentId={appointmentId}
                 onFilesChange={handleMediaChange}
               />
             </div>

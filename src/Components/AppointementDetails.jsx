@@ -1,9 +1,101 @@
+import { useEffect, useState } from "react";
 import { formatAppointmentDate } from "../utils/dateUtils";
+
+function getMediaPathname(media) {
+  if (media?.pathname) {
+    return media.pathname;
+  }
+
+  // Backward compatibility for records created
+  // before pathname was saved.
+  if (media?.url) {
+    try {
+      const url = new URL(media.url);
+
+      if (url.hostname.includes(".private.blob.vercel-storage.com")) {
+        return url.pathname.replace(/^\/+/, "");
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
 
 function AppointmentDetails({
   appointment,
   onBack,
 }) {
+  const [resolvedMediaUrls, setResolvedMediaUrls] = useState({});
+  const [mediaLoading, setMediaLoading] = useState(false);
+  const [mediaError, setMediaError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadMediaUrls() {
+      const mediaItems = appointment.mediaUrls || [];
+
+      if (mediaItems.length === 0) {
+        setResolvedMediaUrls({});
+        return;
+      }
+
+      setMediaLoading(true);
+      setMediaError("");
+
+      try {
+        const resolvedEntries = await Promise.all(
+          mediaItems.map(async (media, index) => {
+            const pathname = getMediaPathname(media);
+
+            // Legacy/public media fallback.
+            if (!pathname) {
+              return [index, media?.url || ""];
+            }
+
+            const response = await fetch(
+              `/api/media?pathname=${encodeURIComponent(pathname)}`,
+            );
+
+            const data = await response.json();
+
+            if (!response.ok) {
+              throw new Error(
+                data.message || "Failed to load media.",
+              );
+            }
+
+            return [index, data.data.url];
+          }),
+        );
+
+        if (!cancelled) {
+          setResolvedMediaUrls(
+            Object.fromEntries(resolvedEntries),
+          );
+        }
+      } catch (error) {
+        console.error("Media loading failed:", error);
+
+        if (!cancelled) {
+          setMediaError("Unable to load attached media.");
+        }
+      } finally {
+        if (!cancelled) {
+          setMediaLoading(false);
+        }
+      }
+    }
+
+    loadMediaUrls();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appointment.id, appointment.mediaUrls]);
+
   return (
     <main className="mx-auto w-full max-w-[1200px] flex-1 px-4 py-8 sm:px-6 lg:px-8">
       {/* Back */}
@@ -79,78 +171,105 @@ function AppointmentDetails({
 
         {/* Media */}
         <div className="mt-6 border-t border-[rgba(14,22,38,0.08)] pt-5">
-  <p className="mediform-mono-label">
-    Attached Media
-  </p>
+          <p className="mediform-mono-label">
+            Attached Media
+          </p>
 
-  {appointment.mediaUrls?.length > 0 ? (
-    <div className="mt-4 grid gap-4 sm:grid-cols-2">
-      {appointment.mediaUrls.map((media, index) => {
-        const isImage = media.type?.startsWith("image/");
-        const isPdf = media.type === "application/pdf";
+          {mediaLoading && (
+            <p className="mt-3 text-sm text-[var(--color-muted)]">
+              Loading attached media...
+            </p>
+          )}
 
-        return (
-          <div
-            key={`${media.name}-${index}`}
-            className="overflow-hidden rounded-[var(--radius-input)] border border-[rgba(14,22,38,0.1)] bg-[var(--color-surface)]"
-          >
-            {/* Image */}
-            {isImage && media.url ? (
-              <div>
-                <img
-                  src={media.url}
-                  alt={media.name}
-                  className="h-48 w-full object-cover"
-                />
+          {mediaError && (
+            <p
+              role="alert"
+              className="mt-3 text-sm text-[var(--color-alert)]"
+            >
+              {mediaError}
+            </p>
+          )}
 
-                <div className="border-t border-[rgba(14,22,38,0.08)] p-3">
-                  <p className="truncate text-sm font-medium text-[var(--color-ink)]">
-                    {media.name}
-                  </p>
-                </div>
-              </div>
-            ) : isPdf ? (
-              /* PDF */
-              <a
-                href={media.url || "#"}
-                target="_blank"
-                rel="noreferrer"
-                className="block p-4 transition-colors hover:border-[var(--color-primary)]"
-              >
-                <p className="font-[var(--font-mono)] text-xs text-[var(--color-alert)]">
-                  PDF
-                </p>
+          {!mediaLoading &&
+          !mediaError &&
+          appointment.mediaUrls?.length > 0 ? (
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              {appointment.mediaUrls.map((media, index) => {
+                const mediaUrl = resolvedMediaUrls[index];
 
-                <p className="mt-2 truncate text-sm font-medium text-[var(--color-ink)]">
-                  {media.name}
-                </p>
+                const isImage =
+                  media.type?.startsWith("image/");
 
-                <p className="mt-1 text-xs text-[var(--color-muted)]">
-                  Open document
-                </p>
-              </a>
-            ) : (
-              /* Unknown media */
-              <div className="p-4">
-                <p className="text-sm text-[var(--color-ink)]">
-                  {media.name}
-                </p>
+                const isPdf =
+                  media.type === "application/pdf";
 
-                <p className="mt-1 text-xs text-[var(--color-muted)]">
-                  Unsupported preview
-                </p>
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  ) : (
-    <p className="mt-2 text-sm text-[var(--color-muted)]">
-      No media attached.
-    </p>
-  )}
-</div>
+                return (
+                  <div
+                    key={`${media.name}-${index}`}
+                    className="overflow-hidden rounded-[var(--radius-input)] border border-[rgba(14,22,38,0.1)] bg-[var(--color-surface)]"
+                  >
+                    {/* Image */}
+                    {isImage && mediaUrl ? (
+                      <div>
+                        <img
+                          src={mediaUrl}
+                          alt={media.name}
+                          className="h-48 w-full object-cover"
+                        />
+
+                        <div className="border-t border-[rgba(14,22,38,0.08)] p-3">
+                          <p className="truncate text-sm font-medium text-[var(--color-ink)]">
+                            {media.name}
+                          </p>
+                        </div>
+                      </div>
+                    ) : isPdf && mediaUrl ? (
+                      /* PDF */
+                      <a
+                        href={mediaUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block p-4 transition-colors hover:border-[var(--color-primary)]"
+                      >
+                        <p className="font-[var(--font-mono)] text-xs text-[var(--color-alert)]">
+                          PDF
+                        </p>
+
+                        <p className="mt-2 truncate text-sm font-medium text-[var(--color-ink)]">
+                          {media.name}
+                        </p>
+
+                        <p className="mt-1 text-xs text-[var(--color-muted)]">
+                          Open document
+                        </p>
+                      </a>
+                    ) : (
+                      /* Unsupported / unavailable */
+                      <div className="p-4">
+                        <p className="text-sm text-[var(--color-ink)]">
+                          {media.name}
+                        </p>
+
+                        <p className="mt-1 text-xs text-[var(--color-muted)]">
+                          Preview unavailable
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            !mediaLoading &&
+            !mediaError &&
+            (!appointment.mediaUrls ||
+              appointment.mediaUrls.length === 0) && (
+              <p className="mt-2 text-sm text-[var(--color-muted)]">
+                No media attached.
+              </p>
+            )
+          )}
+        </div>
       </div>
     </main>
   );

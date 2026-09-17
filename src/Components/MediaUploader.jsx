@@ -1,7 +1,6 @@
-const API_BASE_URL = "http://localhost:5000/api";
-
 import { useState } from "react";
-import { FileImage, FileText, Upload, X } from "lucide-react";
+
+import {  FileText, Upload, X } from "lucide-react";
 
 const ACCEPTED_TYPES = [
   "image/jpeg",
@@ -12,7 +11,7 @@ const ACCEPTED_TYPES = [
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
-function MediaUploader({ onFilesChange }) {
+function MediaUploader({ onFilesChange,appointmentId }) {
   const [files, setFiles] = useState([]);
   const [error, setError] = useState("");
 
@@ -44,39 +43,62 @@ function MediaUploader({ onFilesChange }) {
     }
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
+      const safeFileName = file.name.replace(
+  /[^a-zA-Z0-9._-]/g,
+  "-",
+);
 
-      const response = await fetch(
-        `${API_BASE_URL}/uploads`,
-        {
-          method: "POST",
-          body: formData,
+const pathname = `medical/${appointmentId}/${Date.now()}-${safeFileName}`;
+
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify({
+          pathname,
+          contentType: file.type,
+          size: file.size,
+        }),
+      });
 
       const data = await response.json();
 
       if (!response.ok) {
         throw new Error(
-          data.message || "File upload failed.",
+          data.message || "Failed to create upload URL.",
         );
       }
 
+      const uploadResponse = await fetch(
+        data.data.presignedUrl,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": file.type,
+          },
+          body: file,
+        },
+      );
+
+      if (!uploadResponse.ok) {
+        throw new Error("Blob upload failed.");
+      }
+
       validFiles.push({
-        id: `${file.name}-${file.lastModified}`,
-        file,
-        previewUrl: URL.createObjectURL(file),
-        uploadedUrl: `http://localhost:5000${data.data.url}`,
-        name: data.data.name,
-        type: data.data.type,
-      });
+  id: `${file.name}-${file.lastModified}`,
+  file,
+  previewUrl: URL.createObjectURL(file),
+  pathname: data.data.pathname,
+  name: file.name,
+  type: file.type,
+});
+
+
     } catch (error) {
       console.error("Media upload failed:", error);
 
-      setError(
-        `${file.name}: Unable to upload file.`,
-      );
+      setError(`${file.name}: Unable to upload file.`);
     }
   }
 
