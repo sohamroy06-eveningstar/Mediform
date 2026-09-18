@@ -1,4 +1,8 @@
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useState,
+} from "react";
+
 import AppointmentContext from "./appointmentContext.js";
 
 import {
@@ -8,68 +12,119 @@ import {
   deleteAppointment as deleteAppointmentApi,
 } from "../service/appointmentService.js";
 
-function AppointmentProvider({ children }) {
-  const [appointments, setAppointments] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
+function AppointmentProvider({
+  children,
+  adminMode = false,
+}) {
+  const [appointments, setAppointments] =
+    useState([]);
 
-  async function addAppointment(appointment) {
-    const response = await createAppointmentApi(appointment);
+  const [isLoading, setIsLoading] =
+    useState(true);
 
-    setAppointments((currentAppointments) => [
-      ...currentAppointments,
-      response.data,
-    ]);
+  const [error, setError] =
+    useState("");
+
+  async function addAppointment(
+    appointment,
+  ) {
+    const response =
+      await createAppointmentApi(
+        appointment,
+      );
+
+    setAppointments(
+      (current) => [
+        ...current,
+        response.data,
+      ],
+    );
 
     return response.data;
   }
 
-  async function updateAppointment(updatedAppointment) {
-    const response = await updateAppointmentApi(
-      updatedAppointment.id,
-      updatedAppointment,
-    );
+  async function updateAppointment(
+    updatedAppointment,
+  ) {
+    const response =
+      await updateAppointmentApi(
+        updatedAppointment.id,
+        updatedAppointment,
+      );
 
-    setAppointments((currentAppointments) =>
-      currentAppointments.map((appointment) =>
-        appointment.id === updatedAppointment.id
-          ? response.data
-          : appointment,
-      ),
+    setAppointments(
+      (current) =>
+        current.map((appointment) =>
+          appointment.id ===
+          updatedAppointment.id
+            ? response.data
+            : appointment,
+        ),
     );
 
     return response.data;
   }
 
-  async function cancelAppointment(appointmentId) {
-    await deleteAppointmentApi(appointmentId);
+  async function cancelAppointment(
+    appointmentId,
+  ) {
+    await deleteAppointmentApi(
+      appointmentId,
+    );
 
-    setAppointments((currentAppointments) =>
-      currentAppointments.filter(
-        (appointment) => appointment.id !== appointmentId,
-      ),
+    setAppointments(
+      (current) =>
+        current.filter(
+          (appointment) =>
+            appointment.id !==
+            appointmentId,
+        ),
     );
   }
 
   useEffect(() => {
+    let mounted = true;
+
     async function loadAppointments() {
       try {
         setIsLoading(true);
         setError("");
 
-        const response = await fetchAppointments();
+        const response =
+          await fetchAppointments({
+            all: adminMode,
+          });
 
-        setAppointments(response.data);
+        if (!mounted) return;
+
+        setAppointments(
+          response.data || [],
+        );
       } catch (error) {
-        console.error("Failed to load appointments:", error);
-        setError("Unable to load appointments.");
+        console.error(
+          "Failed to load appointments:",
+          error,
+        );
+
+        if (mounted) {
+          setError(
+            error.message ||
+              "Unable to load appointments.",
+          );
+        }
       } finally {
-        setIsLoading(false);
+        if (mounted) {
+          setIsLoading(false);
+        }
       }
     }
 
     loadAppointments();
-  }, []);
+
+    return () => {
+      mounted = false;
+    };
+  }, [adminMode]);
 
   return (
     <AppointmentContext.Provider

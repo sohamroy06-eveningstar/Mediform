@@ -1,8 +1,8 @@
 import { useState } from "react";
+import { FileText, Upload, X } from "lucide-react";
+import {supabase} from "../lib/supabaseClient.js"
 
-import {  FileText, Upload, X } from "lucide-react";
-
-const ACCEPTED_TYPES = [
+const DEFAULT_ACCEPTED_TYPES = [
   "image/jpeg",
   "image/png",
   "image/webp",
@@ -11,13 +11,28 @@ const ACCEPTED_TYPES = [
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
-function MediaUploader({ onFilesChange,appointmentId }) {
+function MediaUploader({
+  onFilesChange,
+  appointmentId,
+
+  // Reusable props
+  resourceId,
+  folder = "medical",
+
+  // Doctor profile uses single image
+  multiple = true,
+
+  acceptedTypes = DEFAULT_ACCEPTED_TYPES,
+}) {
   const [files, setFiles] = useState([]);
   const [error, setError] = useState("");
 
+  const uploadResourceId =
+    resourceId || appointmentId;
+
   function validateFile(file) {
-    if (!ACCEPTED_TYPES.includes(file.type)) {
-      return `${file.name}: Only JPG, PNG, WebP and PDF files are allowed.`;
+    if (!acceptedTypes.includes(file.type)) {
+      return `${file.name}: This file type is not allowed.`;
     }
 
     if (file.size > MAX_FILE_SIZE) {
@@ -28,108 +43,230 @@ function MediaUploader({ onFilesChange,appointmentId }) {
   }
 
  async function handleFileChange(event) {
-  const selectedFiles = Array.from(event.target.files || []);
+  const selectedFiles = Array.from(
+    event.target.files || [],
+  );
 
   setError("");
 
-  const validFiles = [];
+  if (!uploadResourceId) {
+    setError(
+      "Upload resource ID is missing.",
+    );
+    return;
+  }
 
-  for (const file of selectedFiles) {
-    const validationError = validateFile(file);
+  if (selectedFiles.length === 0) {
+    return;
+  }
 
-    if (validationError) {
-      setError(validationError);
-      continue;
+  const filesToUpload = multiple
+    ? selectedFiles
+    : [selectedFiles[0]];
+
+  try {
+    const uploadedFiles = [];
+
+    /*
+     * Get current Supabase session.
+     */
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (
+      sessionError ||
+      !session?.access_token
+    ) {
+      throw new Error(
+        "Authentication session not found. Please log in again.",
+      );
     }
 
-    try {
-      const safeFileName = file.name.replace(
-  /[^a-zA-Z0-9._-]/g,
-  "-",
-);
+    for (const file of filesToUpload) {
+      const validationMessage =
+        validateFile(file);
 
-const pathname = `medical/${appointmentId}/${Date.now()}-${safeFileName}`;
-
-      const response = await fetch("/api/upload", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          pathname,
-          contentType: file.type,
-          size: file.size,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
+      if (validationMessage) {
         throw new Error(
-          data.message || "Failed to create upload URL.",
+          validationMessage,
         );
       }
 
-      const uploadResponse = await fetch(
-        data.data.presignedUrl,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": file.type,
+      /*
+       * Step 1:
+       * Ask our server for a signed PUT URL.
+       */
+      const uploadResponse =
+        await fetch(
+          "/api/upload",
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+
+              Authorization:
+                `Bearer ${session.access_token}`,
+            },
+
+            body: JSON.stringify({
+              resourceId:
+                uploadResourceId,
+
+              folder,
+
+              fileName:
+                file.name,
+
+              contentType:
+                file.type,
+
+              size:
+                file.size,
+            }),
           },
-          body: file,
-        },
-      );
+        );
+
+      const uploadData =
+        await uploadResponse.json();
 
       if (!uploadResponse.ok) {
-        throw new Error("Blob upload failed.");
+        throw new Error(
+          uploadData.message ||
+            "Failed to create upload URL.",
+        );
       }
 
-      validFiles.push({
-  id: `${file.name}-${file.lastModified}`,
-  file,
-  previewUrl: URL.createObjectURL(file),
-  pathname: data.data.pathname,
-  name: file.name,
-  type: file.type,
-});
+      const {
+        presignedUrl,
+        pathname,
+      } =
+        uploadData.data || {};
 
+      if (
+        !presignedUrl ||
+        !pathname
+      ) {
+        throw new Error(
+          "Upload URL or pathname was not returned.",
+        );
+      }
 
-    } catch (error) {
-      console.error("Media upload failed:", error);
+      /*
+       * Step 2:
+       * Browser uploads the file directly
+       * to Vercel Blob.
+       */
+      const blobResponse =
+        await fetch(
+          presignedUrl,
+          {
+            method: "PUT",
 
-      setError(`${file.name}: Unable to upload file.`);
+            headers: {
+              "Content-Type":
+                file.type,
+            },
+
+            body: file,
+          },
+        );
+
+      if (!blobResponse.ok) {
+        throw new Error(
+          `Blob upload failed: ${blobResponse.status}`,
+        );
+      }
+
+      /*
+       * IMPORTANT:
+       * pathname is already the exact pathname
+       * created by our server.
+       */
+      uploadedFiles.push({
+        id: pathname,
+
+        file,
+
+        name: file.name,
+
+        type: file.type,
+
+        size: file.size,
+
+        pathname,
+
+        /*
+         * Private Blob URL should NOT be rendered
+         * directly.
+         */
+        url: "",
+
+        downloadUrl: "",
+
+        /*
+         * Local preview only.
+         */
+        previewUrl:
+          file.type.startsWith(
+            "image/",
+          )
+            ? URL.createObjectURL(file)
+            : "",
+      });
     }
+
+    const nextFiles = multiple
+      ? [
+          ...files,
+          ...uploadedFiles,
+        ]
+      : uploadedFiles;
+
+    setFiles(nextFiles);
+
+    onFilesChange?.(nextFiles);
+
+    /*
+     * Allow selecting the same file again.
+     */
+    event.target.value = "";
+  } catch (error) {
+    console.error(
+      "Media upload failed:",
+      error,
+    );
+
+    setError(
+      error instanceof Error
+        ? error.message
+        : "Upload failed. Please try again.",
+    );
+
+    event.target.value = "";
   }
-
-  const existingIds = new Set(
-    files.map((item) => item.id),
-  );
-
-  const newFiles = validFiles.filter(
-    (item) => !existingIds.has(item.id),
-  );
-
-  const updatedFiles = [...files, ...newFiles];
-
-  setFiles(updatedFiles);
-  onFilesChange?.(updatedFiles);
-
-  event.target.value = "";
 }
+
   function removeFile(fileId) {
     setFiles((currentFiles) => {
-      const fileToRemove = currentFiles.find(
-        (item) => item.id === fileId,
-      );
+      const fileToRemove =
+        currentFiles.find(
+          (item) => item.id === fileId,
+        );
 
       if (fileToRemove?.previewUrl) {
-        URL.revokeObjectURL(fileToRemove.previewUrl);
+        URL.revokeObjectURL(
+          fileToRemove.previewUrl,
+        );
       }
 
-      const updatedFiles = currentFiles.filter(
-        (item) => item.id !== fileId,
-      );
+      const updatedFiles =
+        currentFiles.filter(
+          (item) => item.id !== fileId,
+        );
 
       onFilesChange?.(updatedFiles);
 
@@ -138,30 +275,32 @@ const pathname = `medical/${appointmentId}/${Date.now()}-${safeFileName}`;
   }
 
   return (
-    <div>
-      {/* Upload control */}
-      <label className="flex cursor-pointer flex-col items-center justify-center rounded-[var(--radius-card)] border border-dashed border-[rgba(14,22,38,0.16)] bg-[var(--color-surface)] px-6 py-8 text-center transition-colors hover:border-[var(--color-primary)]">
+    <div className="space-y-3">
+      {/* Upload area */}
+      <label className="flex cursor-pointer flex-col items-center justify-center rounded-[var(--radius-input)] border border-dashed border-[rgba(14,22,38,0.18)] bg-[var(--color-surface)] px-6 py-8 text-center transition hover:border-[var(--color-primary)]">
         <Upload
-          size={22}
-          strokeWidth={1.8}
+          size={24}
           className="text-[var(--color-muted)]"
-          aria-hidden="true"
         />
 
-        <span className="mt-3 font-[var(--font-ui)] text-sm font-medium text-[var(--color-ink)]">
-          Upload medical files
-        </span>
+        <p className="mt-2 text-sm font-medium text-[var(--color-ink)]">
+          {multiple
+            ? "Choose files"
+            : "Choose profile image"}
+        </p>
 
-        <span className="mt-1 text-xs text-[var(--color-muted)]">
-          JPG, PNG, WebP or PDF • Max 5MB
-        </span>
+        <p className="mt-1 text-xs text-[var(--color-muted)]">
+          JPG, PNG, WebP and PDF up to 5MB
+          {!multiple &&
+            " • One image only"}
+        </p>
 
         <input
           type="file"
-          multiple
-          accept=".jpg,.jpeg,.png,.webp,.pdf"
+          className="hidden"
+          accept={acceptedTypes.join(",")}
+          multiple={multiple}
           onChange={handleFileChange}
-          className="sr-only"
         />
       </label>
 
@@ -169,61 +308,61 @@ const pathname = `medical/${appointmentId}/${Date.now()}-${safeFileName}`;
       {error && (
         <p
           role="alert"
-          className="mt-3 text-sm text-[var(--color-alert)]"
+          className="text-sm text-[var(--color-alert)]"
         >
           {error}
         </p>
       )}
 
-      {/* Files */}
+      {/* Uploaded files */}
       {files.length > 0 && (
-        <div className="mt-4 space-y-3">
+        <div className="space-y-3">
           {files.map((item) => {
-            const isImage = item.file.type.startsWith("image/");
+            const isImage =
+              item.type?.startsWith(
+                "image/",
+              );
 
             return (
               <div
                 key={item.id}
-                className="flex items-center gap-3 rounded-[var(--radius-input)] border border-[rgba(14,22,38,0.08)] bg-[var(--color-surface)] p-3"
+                className="relative overflow-hidden rounded-[var(--radius-input)] border border-[rgba(14,22,38,0.1)] bg-white"
               >
-                {isImage && item.previewUrl ? (
+                {isImage ? (
                   <img
                     src={item.previewUrl}
-                    alt={item.file.name}
-                    className="h-12 w-12 rounded object-cover"
+                    alt={item.name}
+                    className="h-48 w-full object-cover"
                   />
                 ) : (
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-[rgba(14,22,38,0.04)]">
+                  <div className="flex items-center gap-3 p-4">
                     <FileText
-                      size={20}
-                      className="text-[var(--color-muted)]"
-                      aria-hidden="true"
+                      size={24}
+                      className="text-[var(--color-alert)]"
                     />
+
+                    <p className="truncate text-sm font-medium">
+                      {item.name}
+                    </p>
                   </div>
                 )}
 
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-[var(--color-ink)]">
-                    {item.file.name}
+                <div className="flex items-center justify-between border-t border-gray-100 px-3 py-2">
+                  <p className="truncate pr-3 text-xs text-gray-600">
+                    {item.name}
                   </p>
 
-                  <p className="font-[var(--font-mono)] text-xs text-[var(--color-muted)]">
-                    {(item.file.size / 1024 / 1024).toFixed(2)} MB
-                  </p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      removeFile(item.id)
+                    }
+                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-red-500 shadow-sm ring-1 ring-gray-200 transition hover:bg-red-50"
+                    aria-label={`Remove ${item.name}`}
+                  >
+                    <X size={15} />
+                  </button>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => removeFile(item.id)}
-                  aria-label={`Remove ${item.file.name}`}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--color-muted)] hover:bg-[rgba(255,90,95,0.06)] hover:text-[var(--color-alert)]"
-                >
-                  <X
-                    size={16}
-                    strokeWidth={1.8}
-                    aria-hidden="true"
-                  />
-                </button>
               </div>
             );
           })}

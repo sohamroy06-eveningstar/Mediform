@@ -1,48 +1,152 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 
 import MediaUploader from "./MediaUploader";
-import useAppointments from "../hooks/useAppointments";
+
 import { validateAppointment } from "../utils/validation";
+import { fetchDoctors } from "../service/doctorService";
 
 function AppointmentForm({
   onSubmit,
   onCancel,
   initialData = null,
 }) {
-  const { appointments } = useAppointments();
   const [appointmentId] = useState(
-  () => initialData?.id || `MED-${Date.now()}`,
-);
+    () =>
+      initialData?.id ||
+      `MED-${Date.now()}`,
+  );
 
-  const doctors = useMemo(() => {
-    return [
-      ...new Set(
-        appointments.map(
-          (appointment) => appointment.doctorName,
-        ),
-      ),
-    ];
-  }, [appointments]);
+  /* =========================
+     DOCTORS
+  ========================= */
+
+  const [doctors, setDoctors] = useState([]);
+  const [doctorsLoading, setDoctorsLoading] =
+    useState(true);
+  const [doctorsError, setDoctorsError] =
+    useState("");
+
+  /* =========================
+     FORM
+  ========================= */
 
   const [formFields, setFormFields] = useState({
-    patientName: initialData?.patientName || "",
-    doctorName: initialData?.doctorName || "",
-    date: initialData?.date || "",
-    time: initialData?.time || "",
-    reason: initialData?.reason || "",
-    notes: initialData?.notes || "",
+    patientName:
+      initialData?.patientName || "",
+
+    doctorName:
+      initialData?.doctorName || "",
+
+    date:
+      initialData?.date || "",
+
+    time:
+      initialData?.time || "",
+
+    reason:
+      initialData?.reason || "",
+
+    notes:
+      initialData?.notes || "",
   });
 
   const [errors, setErrors] = useState({});
-  const [selectedMedia, setSelectedMedia] = useState([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedMedia, setSelectedMedia] =
+    useState([]);
+  const [isSubmitting, setIsSubmitting] =
+    useState(false);
 
-  // Preserve existing media when editing.
-  const existingMedia = initialData?.mediaUrls || [];
+  /*
+   * Preserve existing media when editing.
+   */
+  const existingMedia =
+    initialData?.mediaUrls || [];
+
+  /* =========================
+     LOAD DOCTORS
+  ========================= */
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadDoctors() {
+      try {
+        setDoctorsLoading(true);
+        setDoctorsError("");
+
+        const response =
+          await fetchDoctors();
+
+        if (!mounted) {
+          return;
+        }
+
+        setDoctors(
+          Array.isArray(response.data)
+            ? response.data
+            : [],
+        );
+      } catch (error) {
+        console.error(
+          "Failed to load doctors:",
+          error,
+        );
+
+        if (mounted) {
+          setDoctorsError(
+            error.message ||
+              "Unable to load doctors.",
+          );
+        }
+      } finally {
+        if (mounted) {
+          setDoctorsLoading(false);
+        }
+      }
+    }
+
+    loadDoctors();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  /*
+   * When editing an appointment,
+   * the existing doctor may no longer
+   * be in the active doctor list.
+   *
+   * Keep that doctor visible as the
+   * current appointment value.
+   */
+  const hasCurrentDoctor =
+    Boolean(
+      formFields.doctorName &&
+        doctors.some(
+          (doctor) =>
+            doctor.fullName ===
+            formFields.doctorName,
+        ),
+    );
+
+  const showCurrentDoctorOption =
+    Boolean(
+      initialData &&
+        formFields.doctorName &&
+        !hasCurrentDoctor,
+    );
+
+  /* =========================
+     FORM HANDLERS
+  ========================= */
 
   function handleChange(event) {
-    const { name, value } = event.target;
+    const {
+      name,
+      value,
+    } = event.target;
 
     const updatedFields = {
       ...formFields,
@@ -51,11 +155,17 @@ function AppointmentForm({
 
     setFormFields(updatedFields);
 
-    const validationErrors = validateAppointment(updatedFields);
+    const validationErrors =
+      validateAppointment(
+        updatedFields,
+      );
 
     setErrors((currentErrors) => ({
       ...currentErrors,
-      [name]: validationErrors[name] || "",
+
+      [name]:
+        validationErrors[name] || "",
+
       form: "",
     }));
   }
@@ -69,52 +179,110 @@ function AppointmentForm({
     }));
   }
 
+  /* =========================
+     SUBMIT
+  ========================= */
+
   async function handleSubmit(event) {
     event.preventDefault();
 
-    const validationErrors = validateAppointment(formFields);
+    const validationErrors =
+      validateAppointment(
+        formFields,
+      );
 
     setErrors(validationErrors);
 
-    if (Object.keys(validationErrors).length > 0) {
+    if (
+      Object.keys(
+        validationErrors,
+      ).length > 0
+    ) {
       return;
     }
+
+    /*
+     * Don't submit while doctor
+     * data is still loading.
+     */
+    if (doctorsLoading) {
+      setErrors({
+        form:
+          "Please wait until the doctor list finishes loading.",
+      });
+
+      return;
+    }
+
+    if (
+      doctorsError &&
+      !formFields.doctorName
+    ) {
+      setErrors({
+        form:
+          "Unable to load doctors. Please try again.",
+      });
+
+      return;
+    }
+
+    /*
+     * New media selected in current form.
+     */
+    const newMedia =
+      selectedMedia.map((item) => ({
+        pathname:
+          item.pathname || "",
+
+        name:
+          item.name ||
+          item.file?.name ||
+          "",
+
+        type:
+          item.type ||
+          item.file?.type ||
+          "",
+      }));
+
+    /*
+     * Preserve existing media when editing.
+     */
+    const mediaUrls = [
+      ...existingMedia,
+      ...newMedia,
+    ];
+
+    const appointmentData = {
+      id: appointmentId,
+
+      patientName:
+        formFields.patientName.trim(),
+
+      doctorName:
+        formFields.doctorName,
+
+      date:
+        formFields.date,
+
+      time:
+        formFields.time,
+
+      reason:
+        formFields.reason.trim(),
+
+      notes:
+        formFields.notes.trim(),
+
+      mediaUrls,
+    };
 
     setIsSubmitting(true);
 
     try {
-      // New media selected in the current form.
-      const newMedia = selectedMedia.map((item) => ({
-  pathname: item.pathname || "",
-  name: item.name || item.file.name,
-  type: item.type || item.file.type,
-}));
-
-      // Keep existing media when editing.
-      const mediaUrls = [
-        ...existingMedia,
-        ...newMedia,
-      ];
-
-      const appointmentData = {
-  id: appointmentId,
-
-  patientName: formFields.patientName.trim(),
-
-  doctorName: formFields.doctorName,
-
-  date: formFields.date,
-
-  time: formFields.time,
-
-  reason: formFields.reason.trim(),
-
-  notes: formFields.notes.trim(),
-
-  mediaUrls,
-};
-
-      await onSubmit(appointmentData);
+      await onSubmit(
+        appointmentData,
+      );
     } catch (error) {
       console.error(
         "Appointment submission failed:",
@@ -122,30 +290,40 @@ function AppointmentForm({
       );
 
       setErrors({
-        form: "Unable to save appointment. Please try again.",
+        form:
+          error.message ||
+          "Unable to save appointment. Please try again.",
       });
     } finally {
       setIsSubmitting(false);
     }
   }
 
+  /* =========================
+     DATE
+  ========================= */
+
   const today = new Date()
     .toISOString()
     .split("T")[0];
 
+  /* =========================
+     UI
+  ========================= */
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(14,22,38,0.45)] p-4">
-
       <div
         className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[var(--radius-card)] bg-[var(--color-surface)] shadow-[var(--shadow-level-2)]"
         role="dialog"
         aria-modal="true"
         aria-labelledby="appointment-form-title"
       >
+        {/* =========================
+            HEADER
+        ========================= */}
 
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-[rgba(14,22,38,0.08)] px-6 py-5">
-
           <div>
             <p className="mediform-mono-label">
               Appointment
@@ -176,13 +354,18 @@ function AppointmentForm({
           </button>
         </div>
 
-        {/* Form */}
+        {/* =========================
+            FORM
+        ========================= */}
+
         <form
           onSubmit={handleSubmit}
           className="space-y-6 p-6"
         >
+          {/* =========================
+              PATIENT
+          ========================= */}
 
-          {/* Patient */}
           <div>
             <label
               htmlFor="patientName"
@@ -195,7 +378,9 @@ function AppointmentForm({
               id="patientName"
               name="patientName"
               type="text"
-              value={formFields.patientName}
+              value={
+                formFields.patientName
+              }
               onChange={handleChange}
               placeholder="Enter patient name"
               disabled={isSubmitting}
@@ -204,52 +389,111 @@ function AppointmentForm({
 
             {errors.patientName && (
               <p className="mt-1 text-xs text-[var(--color-alert)]">
-                {errors.patientName}
+                {
+                  errors.patientName
+                }
               </p>
             )}
           </div>
 
-          {/* Doctor */}
-          <div>
-            <label
-              htmlFor="doctorName"
-              className="mediform-mono-label"
-            >
-              Doctor
-            </label>
+          {/* =========================
+    DOCTOR
+========================= */}
 
-            <select
-              id="doctorName"
-              name="doctorName"
-              value={formFields.doctorName}
-              onChange={handleChange}
-              disabled={isSubmitting}
-              className="mt-2 w-full rounded-[var(--radius-input)] border border-[rgba(14,22,38,0.12)] bg-[var(--color-surface)] px-3 py-3 text-sm text-[var(--color-ink)] outline-none focus:border-[var(--color-primary)] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <option value="">
-                Select a doctor
-              </option>
+<div>
+  <label
+    htmlFor="doctorName"
+    className="mediform-mono-label"
+  >
+    Doctor
+  </label>
 
-              {doctors.map((doctor) => (
-                <option
-                  key={doctor}
-                  value={doctor}
-                >
-                  {doctor}
-                </option>
-              ))}
-            </select>
+  {/* Doctor loader */}
+  {doctorsLoading ? (
+    <div className="mt-2 flex min-h-[48px] items-center justify-center rounded-[var(--radius-input)] border border-[rgba(14,22,38,0.12)] bg-[var(--color-surface)]">
+      <div className="flex items-center gap-2 text-sm text-[var(--color-muted)]">
+        <span
+          className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--color-primary)] border-t-transparent"
+          aria-hidden="true"
+        />
 
-            {errors.doctorName && (
-              <p className="mt-1 text-xs text-[var(--color-alert)]">
-                {errors.doctorName}
-              </p>
-            )}
-          </div>
+        <span>Loading doctors...</span>
+      </div>
+    </div>
+  ) : (
+    <select
+      id="doctorName"
+      name="doctorName"
+      value={formFields.doctorName}
+      onChange={handleChange}
+      disabled={
+        isSubmitting ||
+        doctors.length === 0
+      }
+      className="mt-2 w-full rounded-[var(--radius-input)] border border-[rgba(14,22,38,0.12)] bg-[var(--color-surface)] px-3 py-3 text-sm text-[var(--color-ink)] outline-none focus:border-[var(--color-primary)] disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      <option value="">
+        Select a doctor
+      </option>
 
-          {/* Date + Time */}
+      {/* Existing doctor during edit */}
+      {showCurrentDoctorOption ? (
+        <option
+          value={formFields.doctorName}
+        >
+          {formFields.doctorName}{" "}
+          (Current appointment)
+        </option>
+      ) : null}
+
+      {/* Active doctors */}
+      {doctors.map((doctor) => (
+        <option
+          key={doctor.id}
+          value={doctor.fullName}
+        >
+          {doctor.fullName}
+
+          {doctor.specialization
+            ? ` — ${doctor.specialization}`
+            : ""}
+        </option>
+      ))}
+    </select>
+  )}
+
+  {/* API Error */}
+  {doctorsError && (
+    <div
+      role="alert"
+      className="mt-2 rounded-[var(--radius-input)] border border-[rgba(255,90,95,0.2)] bg-[rgba(255,90,95,0.06)] px-3 py-2 text-xs text-[var(--color-alert)]"
+    >
+      {doctorsError}
+    </div>
+  )}
+
+  {/* No doctors */}
+  {!doctorsLoading &&
+    !doctorsError &&
+    doctors.length === 0 && (
+      <p className="mt-2 text-xs text-[var(--color-muted)]">
+        No active doctors are currently available.
+      </p>
+    )}
+
+  {/* Validation error */}
+  {errors.doctorName && (
+    <p className="mt-1 text-xs text-[var(--color-alert)]">
+      {errors.doctorName}
+    </p>
+  )}
+</div>
+
+          {/* =========================
+              DATE + TIME
+          ========================= */}
+
           <div className="grid gap-6 sm:grid-cols-2">
-
             {/* Date */}
             <div>
               <label
@@ -264,7 +508,9 @@ function AppointmentForm({
                 name="date"
                 type="date"
                 min={today}
-                value={formFields.date}
+                value={
+                  formFields.date
+                }
                 onChange={handleChange}
                 disabled={isSubmitting}
                 className="mt-2 w-full rounded-[var(--radius-input)] border border-[rgba(14,22,38,0.12)] bg-[var(--color-surface)] px-3 py-3 text-sm text-[var(--color-ink)] outline-none focus:border-[var(--color-primary)] disabled:cursor-not-allowed disabled:opacity-60"
@@ -290,7 +536,9 @@ function AppointmentForm({
                 id="time"
                 name="time"
                 type="time"
-                value={formFields.time}
+                value={
+                  formFields.time
+                }
                 onChange={handleChange}
                 disabled={isSubmitting}
                 className="mt-2 w-full rounded-[var(--radius-input)] border border-[rgba(14,22,38,0.12)] bg-[var(--color-surface)] px-3 py-3 text-sm text-[var(--color-ink)] outline-none focus:border-[var(--color-primary)] disabled:cursor-not-allowed disabled:opacity-60"
@@ -302,10 +550,12 @@ function AppointmentForm({
                 </p>
               )}
             </div>
-
           </div>
 
-          {/* Reason */}
+          {/* =========================
+              REASON
+          ========================= */}
+
           <div>
             <label
               htmlFor="reason"
@@ -317,7 +567,9 @@ function AppointmentForm({
             <textarea
               id="reason"
               name="reason"
-              value={formFields.reason}
+              value={
+                formFields.reason
+              }
               onChange={handleChange}
               placeholder="Describe the reason for this appointment"
               rows={4}
@@ -332,7 +584,10 @@ function AppointmentForm({
             )}
           </div>
 
-          {/* Notes */}
+          {/* =========================
+              NOTES
+          ========================= */}
+
           <div>
             <label
               htmlFor="notes"
@@ -344,7 +599,9 @@ function AppointmentForm({
             <textarea
               id="notes"
               name="notes"
-              value={formFields.notes}
+              value={
+                formFields.notes
+              }
               onChange={handleChange}
               placeholder="Add any additional notes"
               rows={3}
@@ -353,7 +610,10 @@ function AppointmentForm({
             />
           </div>
 
-          {/* Media */}
+          {/* =========================
+              MEDICAL MEDIA
+          ========================= */}
+
           <div>
             <p className="mediform-mono-label">
               Medical Documents
@@ -361,13 +621,20 @@ function AppointmentForm({
 
             <div className="mt-2">
               <MediaUploader
-              appointmentId={appointmentId}
-                onFilesChange={handleMediaChange}
+                appointmentId={
+                  appointmentId
+                }
+                onFilesChange={
+                  handleMediaChange
+                }
               />
             </div>
           </div>
 
-          {/* Form-level error */}
+          {/* =========================
+              FORM ERROR
+          ========================= */}
+
           {errors.form && (
             <div
               role="alert"
@@ -377,9 +644,11 @@ function AppointmentForm({
             </div>
           )}
 
-          {/* Actions */}
-          <div className="flex flex-col-reverse gap-3 border-t border-[rgba(14,22,38,0.08)] pt-5 sm:flex-row sm:justify-end">
+          {/* =========================
+              ACTIONS
+          ========================= */}
 
+          <div className="flex flex-col-reverse gap-3 border-t border-[rgba(14,22,38,0.08)] pt-5 sm:flex-row sm:justify-end">
             <button
               type="button"
               onClick={onCancel}
@@ -391,7 +660,11 @@ function AppointmentForm({
 
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={
+                isSubmitting ||
+                doctorsLoading ||
+                doctors.length === 0
+              }
               className="rounded-[var(--radius-input)] bg-[var(--color-primary)] px-5 py-3 text-sm font-medium text-[var(--color-ink)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-[var(--color-primary)] focus-visible:outline-offset-2"
             >
               {isSubmitting
@@ -400,9 +673,7 @@ function AppointmentForm({
                   ? "Save Changes"
                   : "Book Appointment"}
             </button>
-
           </div>
-
         </form>
       </div>
     </div>

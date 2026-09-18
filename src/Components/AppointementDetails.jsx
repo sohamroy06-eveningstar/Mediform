@@ -26,6 +26,8 @@ function getMediaPathname(media) {
 function AppointmentDetails({
   appointment,
   onBack,
+   onEdit,
+  onCancel,
 }) {
   const [resolvedMediaUrls, setResolvedMediaUrls] = useState({});
   const [mediaLoading, setMediaLoading] = useState(false);
@@ -270,6 +272,30 @@ function AppointmentDetails({
             )
           )}
         </div>
+        {/* Actions */}
+{(onEdit || onCancel) && (
+  <div className="mt-8 flex flex-col gap-3 border-t border-[rgba(14,22,38,0.08)] pt-6 sm:flex-row">
+    {onEdit && (
+      <button
+        type="button"
+        onClick={() => onEdit(appointment)}
+        className="rounded-lg border border-[var(--color-border)] bg-white px-5 py-2.5 text-sm font-medium text-[var(--color-ink)] transition hover:bg-gray-50"
+      >
+        Edit Appointment
+      </button>
+    )}
+
+    {onCancel && (
+      <button
+        type="button"
+        onClick={() => onCancel(appointment)}
+        className="rounded-lg bg-red-500 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-red-600"
+      >
+        Cancel Appointment
+      </button>
+    )}
+  </div>
+)}
       </div>
     </main>
   );

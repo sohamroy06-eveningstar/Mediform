@@ -12,16 +12,52 @@ function Dashboard() {
   const {
     appointments,
     addAppointment,
-     setAppointments,
      updateAppointment,
        cancelAppointment,
+        isLoading,
+  error,
   } = useAppointments();
 
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [isBookingOpen, setIsBookingOpen] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState(null);
   
+if (isLoading) {
+  return (
+    <main className="flex flex-1 items-center justify-center bg-[var(--color-background)] px-4">
+      <div className="text-center">
+        <div
+          className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-[var(--color-primary)] border-t-transparent"
+          aria-label="Loading appointments"
+        />
 
+        <p className="mt-4 text-sm font-medium text-[var(--color-ink)]">
+          Loading appointments...
+        </p>
+
+        <p className="mt-1 text-xs text-[var(--color-muted)]">
+          Fetching your appointment information
+        </p>
+      </div>
+    </main>
+  );
+}
+
+if (error) {
+  return (
+    <main className="flex flex-1 items-center justify-center bg-[var(--color-background)] px-4">
+      <div className="w-full max-w-md rounded-[var(--radius-card)] border border-[rgba(255,90,95,0.2)] bg-[rgba(255,90,95,0.06)] p-6 text-center">
+        <p className="text-sm font-medium text-[var(--color-alert)]">
+          {error}
+        </p>
+
+        <p className="mt-2 text-xs text-[var(--color-muted)]">
+          Please refresh the page and try again.
+        </p>
+      </div>
+    </main>
+  );
+}
   const upcomingAppointments = appointments.filter(
     (appointment) =>
       getAppointmentStatus(appointment.date) === "UPCOMING",
