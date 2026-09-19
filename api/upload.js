@@ -268,24 +268,28 @@ export default async function handler(
     /*
      * Generate the actual presigned PUT URL.
      */
-    const {
-      presignedUrl,
-    } = await presignUrl(
-      token,
-      {
-        pathname,
+const {
+  presignedUrl,
+} = await presignUrl(
+  token,
+  {
+    pathname,
 
-        operation: "put",
+    operation: "put",
 
-        validUntil:
-          Date.now() +
-          15 * 60 * 1000,
+    validUntil:
+      Date.now() +
+      15 * 60 * 1000,
 
-        contentType,
+    contentType,
 
-        access: "private",
-      },
-    );
+    access: "private",
+
+    // IMPORTANT:
+    // Do not let Vercel add another suffix.
+    addRandomSuffix: false,
+  },
+);
 
     return res.status(200).json({
       success: true,
