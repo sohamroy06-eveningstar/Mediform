@@ -17,6 +17,10 @@ const ACCEPTED_TYPES = [
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
+/* =========================================================
+   HELPERS
+========================================================= */
+
 function isValidFilename(filename) {
   return (
     typeof filename === "string" &&
@@ -29,22 +33,6 @@ function sanitizeFilename(filename) {
     .trim()
     .replace(/\s+/g, "-")
     .replace(/[^a-zA-Z0-9._-]/g, "-");
-}
-
-function getExtension(filename) {
-  const lastDot =
-    filename.lastIndexOf(".");
-
-  if (
-    lastDot === -1 ||
-    lastDot === filename.length - 1
-  ) {
-    return "";
-  }
-
-  return filename
-    .slice(lastDot + 1)
-    .toLowerCase();
 }
 
 /* =========================================================
@@ -67,8 +55,7 @@ async function authorizeUpload(
   const resourceId = parts[1];
 
   /* =======================================================
-     DOCTOR PROFILE IMAGE
-     ADMIN ONLY
+     DOCTOR IMAGE
   ======================================================= */
 
   if (folder === "doctors") {
@@ -83,7 +70,6 @@ async function authorizeUpload(
 
   /* =======================================================
      MEDICAL DOCUMENT
-     APPOINTMENT OWNER OR ADMIN
   ======================================================= */
 
   if (folder === "medical") {
@@ -138,7 +124,7 @@ export default async function handler(
 
   try {
     /* =====================================================
-       REQUEST BODY
+       BODY
     ===================================================== */
 
     const {
@@ -150,7 +136,7 @@ export default async function handler(
     } = req.body || {};
 
     /* =====================================================
-       BASIC VALIDATION
+       VALIDATION
     ===================================================== */
 
     if (!resourceId) {
@@ -189,18 +175,6 @@ export default async function handler(
 
     const fileSize = Number(size);
 
-    if (
-      !ACCEPTED_TYPES.includes(
-        contentType,
-      )
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Unsupported file type.",
-      });
-    }
-
     if (fileSize <= 0) {
       return res.status(400).json({
         success: false,
@@ -220,6 +194,18 @@ export default async function handler(
     }
 
     if (
+      !ACCEPTED_TYPES.includes(
+        contentType,
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Unsupported file type.",
+      });
+    }
+
+    if (
       !["doctors", "medical"].includes(
         folder,
       )
@@ -232,37 +218,21 @@ export default async function handler(
     }
 
     /* =====================================================
-       AUTHENTICATION
+       AUTHENTICATE USER
     ===================================================== */
 
     const { appUser } =
       await requireUser(req);
 
     /* =====================================================
-       CREATE UNIQUE PATHNAME
+       PATHNAME
     ===================================================== */
 
     const safeName =
       sanitizeFilename(fileName);
 
-    const extension =
-      getExtension(safeName);
-
-    const uniqueId =
-      crypto.randomUUID();
-
-    const timestamp =
-      Date.now();
-
     const pathname =
-      `${folder}/${resourceId}/${timestamp}-${uniqueId}-${safeName}`;
-
-    if (!extension) {
-      console.warn(
-        "Upload filename has no extension:",
-        fileName,
-      );
-    }
+      `${folder}/${resourceId}/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
 
     /* =====================================================
        AUTHORIZATION
@@ -274,47 +244,102 @@ export default async function handler(
     );
 
     /* =====================================================
-       BLOB CREDENTIAL
+       VERCEL BLOB AUTH
+       
+       PRIMARY:
+       OIDC + storeId
+       
+       FALLBACK:
+       BLOB_READ_WRITE_TOKEN
     ===================================================== */
 
-    const blobToken =
+    const oidcToken =
+      process.env.VERCEL_OIDC_TOKEN;
+
+    const storeId =
+      process.env.BLOB_1_STORE_ID ||
+      process.env.BLOB_STORE_ID;
+
+    const readWriteToken =
       process.env.BLOB_READ_WRITE_TOKEN;
 
-    if (!blobToken) {
+    let signedToken;
+
+    /* =====================================================
+       OIDC
+    ===================================================== */
+
+    if (oidcToken && storeId) {
+      console.log(
+        "[Blob] Using Vercel OIDC authentication",
+      );
+
+      signedToken =
+        await issueSignedToken({
+          oidcToken,
+
+          storeId,
+
+          pathname,
+
+          operations: ["put"],
+
+          validUntil:
+            Date.now() +
+            15 * 60 * 1000,
+
+          allowedContentTypes: [
+            contentType,
+          ],
+
+          maximumSizeInBytes:
+            MAX_FILE_SIZE,
+        });
+    }
+
+    /* =====================================================
+       STATIC TOKEN FALLBACK
+    ===================================================== */
+
+    else if (readWriteToken) {
+      console.log(
+        "[Blob] Using BLOB_READ_WRITE_TOKEN",
+      );
+
+      signedToken =
+        await issueSignedToken({
+          token:
+            readWriteToken,
+
+          pathname,
+
+          operations: ["put"],
+
+          validUntil:
+            Date.now() +
+            15 * 60 * 1000,
+
+          allowedContentTypes: [
+            contentType,
+          ],
+
+          maximumSizeInBytes:
+            MAX_FILE_SIZE,
+        });
+    }
+
+    /* =====================================================
+       NO CREDENTIAL
+    ===================================================== */
+
+    else {
       throw new Error(
-        "BLOB_READ_WRITE_TOKEN is missing in the Vercel environment.",
+        "Vercel Blob credentials are missing. Configure Vercel OIDC with BLOB_1_STORE_ID or set BLOB_READ_WRITE_TOKEN.",
       );
     }
 
     /* =====================================================
-       ISSUE SIGNED TOKEN
-       
-       IMPORTANT:
-       Explicit token is passed here.
-    ===================================================== */
-
-    const signedToken =
-      await issueSignedToken({
-        token: blobToken,
-
-        pathname,
-
-        operations: ["put"],
-
-        validUntil:
-          Date.now() +
-          15 * 60 * 1000,
-
-        allowedContentTypes: [
-          contentType,
-        ],
-
-        maximumSizeInBytes:
-          MAX_FILE_SIZE,
-      });
-
-    /* =====================================================
-       CREATE PRESIGNED PUT URL
+       PRESIGNED URL
     ===================================================== */
 
     const {
@@ -342,7 +367,7 @@ export default async function handler(
     );
 
     /* =====================================================
-       SUCCESS
+       RESPONSE
     ===================================================== */
 
     return res.status(200).json({
@@ -351,10 +376,6 @@ export default async function handler(
       data: {
         presignedUrl,
 
-        /*
-         * Exact pathname that will be
-         * stored in Blob.
-         */
         pathname,
 
         name: fileName,
