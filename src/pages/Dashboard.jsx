@@ -7,6 +7,7 @@ import AppointmentForm from "../Components/AppointmentForm";
 import useAppointments from "../hooks/useAppointments";
 import Swal from "sweetalert2";
 import { getAppointmentStatus } from "../utils/dateUtils";
+import {uploadMediaFiles} from "../service/mediaService";
 
 function Dashboard() {
   const {
@@ -80,9 +81,102 @@ if (error) {
     setIsBookingOpen(true);
   }
 
-  async function handleBookingSubmit(appointment) {
+  async function handleBookingSubmit(
+  appointment,
+) {
+  const {
+    mediaFiles = [],
+    ...appointmentData
+  } = appointment;
+
   try {
-    await addAppointment(appointment);
+    /*
+     * =====================================================
+     * STEP 1
+     * Create appointment first
+     * =====================================================
+     */
+
+    const createdAppointment =
+      await addAppointment({
+        ...appointmentData,
+
+        /*
+         * At this point new media has not
+         * been uploaded yet.
+         */
+        mediaUrls:
+          appointmentData.mediaUrls ||
+          [],
+      });
+
+    let finalAppointment =
+      createdAppointment;
+
+    /*
+     * =====================================================
+     * STEP 2
+     * Upload media using REAL appointment ID
+     * =====================================================
+     */
+
+    if (mediaFiles.length > 0) {
+      try {
+        const uploadedMedia =
+          await uploadMediaFiles({
+            resourceId:
+              createdAppointment.id,
+
+            folder: "medical",
+
+            files: mediaFiles,
+          });
+
+        /*
+         * =================================================
+         * STEP 3
+         * Save Blob pathnames in appointment
+         * =================================================
+         */
+
+        finalAppointment =
+          await updateAppointment({
+            ...createdAppointment,
+
+            mediaUrls: [
+              ...(createdAppointment.mediaUrls ||
+                []),
+              ...uploadedMedia,
+            ],
+          });
+      } catch (uploadError) {
+        /*
+         * Roll back appointment creation
+         * if media upload fails.
+         *
+         * This prevents a retry from creating
+         * a duplicate appointment.
+         */
+
+        try {
+          await cancelAppointment(
+            createdAppointment.id,
+          );
+        } catch (rollbackError) {
+          console.error(
+            "Appointment rollback failed:",
+            rollbackError,
+          );
+        }
+
+        throw uploadError;
+      }
+    }
+
+    /*
+     * Only close modal AFTER
+     * everything succeeded.
+     */
 
     setIsBookingOpen(false);
 
@@ -90,24 +184,37 @@ if (error) {
       toast: true,
       position: "top-end",
       icon: "success",
-      title: "Appointment booked successfully.",
+      title:
+        "Appointment booked successfully.",
       showConfirmButton: false,
       timer: 2500,
       timerProgressBar: true,
     });
+
+    return finalAppointment;
   } catch (error) {
-    console.error("Booking failed:", error);
+    console.error(
+      "Booking failed:",
+      error,
+    );
+
+    /*
+     * Keep modal open so user can retry.
+     */
 
     Swal.fire({
       toast: true,
       position: "top-end",
       icon: "error",
-      title: "Unable to book appointment.",
+      title:
+        "Unable to book appointment.",
       text: error.message,
       showConfirmButton: false,
-      timer: 3000,
+      timer: 3500,
       timerProgressBar: true,
     });
+
+    return null;
   }
 }
   function handleSelect(appointment) {
@@ -118,10 +225,63 @@ function handleEdit(appointment) {
   setSelectedAppointment(null);
   setEditingAppointment(appointment);
 }
+async function handleEditSubmit(
+  updatedAppointment,
+) {
+  const {
+    mediaFiles = [],
+    ...appointmentData
+  } = updatedAppointment;
 
-async function handleEditSubmit(updatedAppointment) {
   try {
-    await updateAppointment(updatedAppointment);
+    /*
+     * =====================================================
+     * STEP 1
+     * Update appointment fields first
+     * =====================================================
+     */
+
+    let finalAppointment =
+      await updateAppointment(
+        appointmentData,
+      );
+
+    /*
+     * =====================================================
+     * STEP 2
+     * Upload new files
+     * =====================================================
+     */
+
+    if (mediaFiles.length > 0) {
+      const uploadedMedia =
+        await uploadMediaFiles({
+          resourceId:
+            finalAppointment.id,
+
+          folder: "medical",
+
+          files: mediaFiles,
+        });
+
+      /*
+       * =================================================
+       * STEP 3
+       * Save new Blob paths
+       * =================================================
+       */
+
+      finalAppointment =
+        await updateAppointment({
+          ...finalAppointment,
+
+          mediaUrls: [
+            ...(finalAppointment.mediaUrls ||
+              []),
+            ...uploadedMedia,
+          ],
+        });
+    }
 
     setEditingAppointment(null);
 
@@ -129,24 +289,37 @@ async function handleEditSubmit(updatedAppointment) {
       toast: true,
       position: "top-end",
       icon: "success",
-      title: "Appointment updated successfully.",
+      title:
+        "Appointment updated successfully.",
       showConfirmButton: false,
       timer: 2500,
       timerProgressBar: true,
     });
+
+    return finalAppointment;
   } catch (error) {
-    console.error("Update appointment failed:", error);
+    console.error(
+      "Update appointment failed:",
+      error,
+    );
+
+    /*
+     * Keep edit modal open.
+     */
 
     Swal.fire({
       toast: true,
       position: "top-end",
       icon: "error",
-      title: "Unable to update appointment.",
+      title:
+        "Unable to update appointment.",
       text: error.message,
       showConfirmButton: false,
-      timer: 3000,
+      timer: 3500,
       timerProgressBar: true,
     });
+
+    return null;
   }
 }
 

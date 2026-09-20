@@ -229,53 +229,53 @@ function AppointmentForm({
     /*
      * New media selected in current form.
      */
-    const newMedia =
-      selectedMedia.map((item) => ({
-        pathname:
-          item.pathname || "",
-
-        name:
-          item.name ||
-          item.file?.name ||
-          "",
-
-        type:
-          item.type ||
-          item.file?.type ||
-          "",
-      }));
-
+  
     /*
      * Preserve existing media when editing.
      */
-    const mediaUrls = [
-      ...existingMedia,
-      ...newMedia,
-    ];
+  const mediaUrls = [
+  ...existingMedia,
+];
 
-    const appointmentData = {
-      id: appointmentId,
+const mediaFiles =
+  selectedMedia
+    .map((item) => item.file)
+    .filter(Boolean);
+   const appointmentData = {
+  id: appointmentId,
 
-      patientName:
-        formFields.patientName.trim(),
+  patientName:
+    formFields.patientName.trim(),
 
-      doctorName:
-        formFields.doctorName,
+  doctorName:
+    formFields.doctorName,
 
-      date:
-        formFields.date,
+  date:
+    formFields.date,
 
-      time:
-        formFields.time,
+  time:
+    formFields.time,
 
-      reason:
-        formFields.reason.trim(),
+  reason:
+    formFields.reason.trim(),
 
-      notes:
-        formFields.notes.trim(),
+  notes:
+    formFields.notes.trim(),
 
-      mediaUrls,
-    };
+  /*
+   * Existing media stays in DB.
+   */
+  mediaUrls,
+
+  /*
+   * New File objects are NOT sent
+   * to the API directly.
+   *
+   * Dashboard will upload them
+   * after appointment creation.
+   */
+  mediaFiles,
+};
 
     setIsSubmitting(true);
 
@@ -621,12 +621,9 @@ function AppointmentForm({
 
             <div className="mt-2">
               <MediaUploader
-                appointmentId={
-                  appointmentId
-                }
-                onFilesChange={
-                  handleMediaChange
-                }
+                appointmentId={appointmentId}
+                deferUpload={true}
+                onFilesChange={handleMediaChange}
               />
             </div>
           </div>

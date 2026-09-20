@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FileText, Upload, X } from "lucide-react";
-import {supabase} from "../lib/supabaseClient.js"
+import { supabase } from "../lib/supabaseClient.js";
 
 const DEFAULT_ACCEPTED_TYPES = [
   "image/jpeg",
@@ -15,14 +15,16 @@ function MediaUploader({
   onFilesChange,
   appointmentId,
 
-  // Reusable props
   resourceId,
   folder = "medical",
 
-  // Doctor profile uses single image
   multiple = true,
 
   acceptedTypes = DEFAULT_ACCEPTED_TYPES,
+
+  // true = only select/store files
+  // false = upload immediately
+  deferUpload = false,
 }) {
   const [files, setFiles] = useState([]);
   const [error, setError] = useState("");
@@ -42,219 +44,272 @@ function MediaUploader({
     return "";
   }
 
- async function handleFileChange(event) {
-  const selectedFiles = Array.from(
-    event.target.files || [],
-  );
-
-  setError("");
-
-  if (!uploadResourceId) {
-    setError(
-      "Upload resource ID is missing.",
+  async function handleFileChange(event) {
+    const selectedFiles = Array.from(
+      event.target.files || [],
     );
-    return;
-  }
 
-  if (selectedFiles.length === 0) {
-    return;
-  }
+    setError("");
 
-  const filesToUpload = multiple
-    ? selectedFiles
-    : [selectedFiles[0]];
-
-  try {
-    const uploadedFiles = [];
-
-    /*
-     * Get current Supabase session.
-     */
-    const {
-      data: { session },
-      error: sessionError,
-    } = await supabase.auth.getSession();
-
-    if (
-      sessionError ||
-      !session?.access_token
-    ) {
-      throw new Error(
-        "Authentication session not found. Please log in again.",
-      );
+    if (selectedFiles.length === 0) {
+      return;
     }
 
-    for (const file of filesToUpload) {
-      const validationMessage =
-        validateFile(file);
+    const filesToUpload = multiple
+      ? selectedFiles
+      : [selectedFiles[0]];
 
-      if (validationMessage) {
+    try {
+      /* =====================================================
+         DEFER MODE
+         ===================================================== */
+
+      if (deferUpload) {
+        const localFiles = [];
+
+        for (const file of filesToUpload) {
+          const validationMessage =
+            validateFile(file);
+
+          if (validationMessage) {
+            throw new Error(
+              validationMessage,
+            );
+          }
+
+          localFiles.push({
+            id: crypto.randomUUID(),
+
+            file,
+
+            name: file.name,
+
+            type: file.type,
+
+            size: file.size,
+
+            /*
+             * These are intentionally empty.
+             * Upload will happen later.
+             */
+            pathname: "",
+
+            url: "",
+
+            downloadUrl: "",
+
+            /*
+             * Local browser preview only.
+             */
+            previewUrl:
+              file.type.startsWith("image/")
+                ? URL.createObjectURL(file)
+                : "",
+          });
+        }
+
+        const nextFiles = multiple
+          ? [
+              ...files,
+              ...localFiles,
+            ]
+          : localFiles;
+
+        setFiles(nextFiles);
+
+        onFilesChange?.(nextFiles);
+
+        event.target.value = "";
+
+        return;
+      }
+
+      /* =====================================================
+         NORMAL / IMMEDIATE UPLOAD MODE
+         ===================================================== */
+
+      if (!uploadResourceId) {
         throw new Error(
-          validationMessage,
+          "Upload resource ID is missing.",
         );
       }
 
-      /*
-       * Step 1:
-       * Ask our server for a signed PUT URL.
-       */
-      const uploadResponse =
-        await fetch(
-          "/api/upload",
-          {
-            method: "POST",
-
-            headers: {
-              "Content-Type":
-                "application/json",
-
-              Authorization:
-                `Bearer ${session.access_token}`,
-            },
-
-            body: JSON.stringify({
-              resourceId:
-                uploadResourceId,
-
-              folder,
-
-              fileName:
-                file.name,
-
-              contentType:
-                file.type,
-
-              size:
-                file.size,
-            }),
-          },
-        );
-
-      const uploadData =
-        await uploadResponse.json();
-
-      if (!uploadResponse.ok) {
-        throw new Error(
-          uploadData.message ||
-            "Failed to create upload URL.",
-        );
-      }
+      /* Get current Supabase session */
 
       const {
-        presignedUrl,
-        pathname,
-      } =
-        uploadData.data || {};
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
 
       if (
-        !presignedUrl ||
-        !pathname
+        sessionError ||
+        !session?.access_token
       ) {
         throw new Error(
-          "Upload URL or pathname was not returned.",
+          "Authentication session not found. Please log in again.",
         );
       }
 
-      /*
-       * Step 2:
-       * Browser uploads the file directly
-       * to Vercel Blob.
-       */
-      const blobResponse =
-        await fetch(
-          presignedUrl,
-          {
-            method: "PUT",
+      const uploadedFiles = [];
 
-            headers: {
-              "Content-Type":
-                file.type,
+      for (const file of filesToUpload) {
+        const validationMessage =
+          validateFile(file);
+
+        if (validationMessage) {
+          throw new Error(
+            validationMessage,
+          );
+        }
+
+        /* =================================================
+           STEP 1
+           Get signed PUT URL
+           ================================================= */
+
+        const uploadResponse =
+          await fetch(
+            "/api/upload",
+            {
+              method: "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/json",
+
+                Authorization:
+                  `Bearer ${session.access_token}`,
+              },
+
+              body: JSON.stringify({
+                resourceId:
+                  uploadResourceId,
+
+                folder,
+
+                fileName:
+                  file.name,
+
+                contentType:
+                  file.type,
+
+                size:
+                  file.size,
+              }),
             },
+          );
 
-            body: file,
-          },
-        );
+        const uploadData =
+          await uploadResponse.json();
 
-      if (!blobResponse.ok) {
-        throw new Error(
-          `Blob upload failed: ${blobResponse.status}`,
-        );
+        if (!uploadResponse.ok) {
+          throw new Error(
+            uploadData.message ||
+              "Failed to create upload URL.",
+          );
+        }
+
+        const {
+          presignedUrl,
+          pathname,
+        } =
+          uploadData.data || {};
+
+        if (
+          !presignedUrl ||
+          !pathname
+        ) {
+          throw new Error(
+            "Upload URL or pathname was not returned.",
+          );
+        }
+
+        /* =================================================
+           STEP 2
+           Upload directly to Vercel Blob
+           ================================================= */
+
+        const blobResponse =
+          await fetch(
+            presignedUrl,
+            {
+              method: "PUT",
+
+              headers: {
+                "Content-Type":
+                  file.type,
+              },
+
+              body: file,
+            },
+          );
+
+        if (!blobResponse.ok) {
+          throw new Error(
+            `Blob upload failed: ${blobResponse.status}`,
+          );
+        }
+
+        uploadedFiles.push({
+          id: pathname,
+
+          file,
+
+          name: file.name,
+
+          type: file.type,
+
+          size: file.size,
+
+          pathname,
+
+          url: "",
+
+          downloadUrl: "",
+
+          previewUrl:
+            file.type.startsWith(
+              "image/",
+            )
+              ? URL.createObjectURL(file)
+              : "",
+        });
       }
 
-      /*
-       * IMPORTANT:
-       * pathname is already the exact pathname
-       * created by our server.
-       */
-      uploadedFiles.push({
-        id: pathname,
+      const nextFiles = multiple
+        ? [
+            ...files,
+            ...uploadedFiles,
+          ]
+        : uploadedFiles;
 
-        file,
+      setFiles(nextFiles);
 
-        name: file.name,
+      onFilesChange?.(nextFiles);
 
-        type: file.type,
+      event.target.value = "";
+    } catch (error) {
+      console.error(
+        "Media upload failed:",
+        error,
+      );
 
-        size: file.size,
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Upload failed. Please try again.",
+      );
 
-        pathname,
-
-        /*
-         * Private Blob URL should NOT be rendered
-         * directly.
-         */
-        url: "",
-
-        downloadUrl: "",
-
-        /*
-         * Local preview only.
-         */
-        previewUrl:
-          file.type.startsWith(
-            "image/",
-          )
-            ? URL.createObjectURL(file)
-            : "",
-      });
+      event.target.value = "";
     }
-
-    const nextFiles = multiple
-      ? [
-          ...files,
-          ...uploadedFiles,
-        ]
-      : uploadedFiles;
-
-    setFiles(nextFiles);
-
-    onFilesChange?.(nextFiles);
-
-    /*
-     * Allow selecting the same file again.
-     */
-    event.target.value = "";
-  } catch (error) {
-    console.error(
-      "Media upload failed:",
-      error,
-    );
-
-    setError(
-      error instanceof Error
-        ? error.message
-        : "Upload failed. Please try again.",
-    );
-
-    event.target.value = "";
   }
-}
 
   function removeFile(fileId) {
     setFiles((currentFiles) => {
       const fileToRemove =
         currentFiles.find(
-          (item) => item.id === fileId,
+          (item) =>
+            item.id === fileId,
         );
 
       if (fileToRemove?.previewUrl) {
@@ -265,10 +320,13 @@ function MediaUploader({
 
       const updatedFiles =
         currentFiles.filter(
-          (item) => item.id !== fileId,
+          (item) =>
+            item.id !== fileId,
         );
 
-      onFilesChange?.(updatedFiles);
+      onFilesChange?.(
+        updatedFiles,
+      );
 
       return updatedFiles;
     });
@@ -276,8 +334,11 @@ function MediaUploader({
 
   return (
     <div className="space-y-3">
+
       {/* Upload area */}
+
       <label className="flex cursor-pointer flex-col items-center justify-center rounded-[var(--radius-input)] border border-dashed border-[rgba(14,22,38,0.18)] bg-[var(--color-surface)] px-6 py-8 text-center transition hover:border-[var(--color-primary)]">
+
         <Upload
           size={24}
           className="text-[var(--color-muted)]"
@@ -305,6 +366,7 @@ function MediaUploader({
       </label>
 
       {/* Error */}
+
       {error && (
         <p
           role="alert"
@@ -314,9 +376,11 @@ function MediaUploader({
         </p>
       )}
 
-      {/* Uploaded files */}
+      {/* Uploaded / selected files */}
+
       {files.length > 0 && (
         <div className="space-y-3">
+
           {files.map((item) => {
             const isImage =
               item.type?.startsWith(
@@ -328,6 +392,7 @@ function MediaUploader({
                 key={item.id}
                 className="relative overflow-hidden rounded-[var(--radius-input)] border border-[rgba(14,22,38,0.1)] bg-white"
               >
+
                 {isImage ? (
                   <img
                     src={item.previewUrl}
@@ -348,6 +413,7 @@ function MediaUploader({
                 )}
 
                 <div className="flex items-center justify-between border-t border-gray-100 px-3 py-2">
+
                   <p className="truncate pr-3 text-xs text-gray-600">
                     {item.name}
                   </p>
@@ -362,12 +428,16 @@ function MediaUploader({
                   >
                     <X size={15} />
                   </button>
+
                 </div>
+
               </div>
             );
           })}
+
         </div>
       )}
+
     </div>
   );
 }
