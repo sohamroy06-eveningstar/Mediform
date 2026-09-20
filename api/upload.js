@@ -252,119 +252,70 @@ export default async function handler(
        FALLBACK:
        BLOB_READ_WRITE_TOKEN
     ===================================================== */
+/* =====================================================
+   VERCEL BLOB AUTH
+===================================================== */
 
-    const oidcToken =
-      process.env.VERCEL_OIDC_TOKEN;
+const readWriteToken =
+  process.env.BLOB_READ_WRITE_TOKEN;
 
-    const storeId =
-      process.env.BLOB_1_STORE_ID ||
-      process.env.BLOB_STORE_ID;
+if (!readWriteToken) {
+  throw new Error(
+    "BLOB_READ_WRITE_TOKEN is missing in Vercel Production environment.",
+  );
+}
 
-    const readWriteToken =
-      process.env.BLOB_READ_WRITE_TOKEN;
+console.log(
+  "[Blob] Using BLOB_READ_WRITE_TOKEN",
+);
 
-    let signedToken;
+const signedToken =
+  await issueSignedToken({
+    token: readWriteToken,
 
-    /* =====================================================
-       OIDC
-    ===================================================== */
+    pathname,
 
-    if (oidcToken && storeId) {
-      console.log(
-        "[Blob] Using Vercel OIDC authentication",
-      );
+    operations: ["put"],
 
-      signedToken =
-        await issueSignedToken({
-          oidcToken,
+    validUntil:
+      Date.now() +
+      15 * 60 * 1000,
 
-          storeId,
+    allowedContentTypes: [
+      contentType,
+    ],
 
-          pathname,
+    maximumSizeInBytes:
+      MAX_FILE_SIZE,
+  });
 
-          operations: ["put"],
+/* =====================================================
+   PRESIGNED URL
+===================================================== */
 
-          validUntil:
-            Date.now() +
-            15 * 60 * 1000,
+const {
+  presignedUrl,
+} = await presignUrl(
+  signedToken,
+  {
+    pathname,
 
-          allowedContentTypes: [
-            contentType,
-          ],
+    operation: "put",
 
-          maximumSizeInBytes:
-            MAX_FILE_SIZE,
-        });
-    }
+    validUntil:
+      Date.now() +
+      15 * 60 * 1000,
 
-    /* =====================================================
-       STATIC TOKEN FALLBACK
-    ===================================================== */
+    allowedContentTypes: [
+      contentType,
+    ],
 
-    else if (readWriteToken) {
-      console.log(
-        "[Blob] Using BLOB_READ_WRITE_TOKEN",
-      );
+    maximumSizeInBytes:
+      MAX_FILE_SIZE,
 
-      signedToken =
-        await issueSignedToken({
-          token:
-            readWriteToken,
-
-          pathname,
-
-          operations: ["put"],
-
-          validUntil:
-            Date.now() +
-            15 * 60 * 1000,
-
-          allowedContentTypes: [
-            contentType,
-          ],
-
-          maximumSizeInBytes:
-            MAX_FILE_SIZE,
-        });
-    }
-
-    /* =====================================================
-       NO CREDENTIAL
-    ===================================================== */
-
-    else {
-      throw new Error(
-        "Vercel Blob credentials are missing. Configure Vercel OIDC with BLOB_1_STORE_ID or set BLOB_READ_WRITE_TOKEN.",
-      );
-    }
-
-    /* =====================================================
-       PRESIGNED URL
-    ===================================================== */
-
-    const {
-      presignedUrl,
-    } = await presignUrl(
-      signedToken,
-      {
-        pathname,
-
-        operation: "put",
-
-        validUntil:
-          Date.now() +
-          15 * 60 * 1000,
-
-        allowedContentTypes: [
-          contentType,
-        ],
-
-        maximumSizeInBytes:
-          MAX_FILE_SIZE,
-
-        access: "private",
-      },
-    );
+    access: "private",
+  },
+);
 
     /* =====================================================
        RESPONSE
