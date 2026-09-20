@@ -32,7 +32,8 @@ function sanitizeFilename(filename) {
 }
 
 function getExtension(filename) {
-  const lastDot = filename.lastIndexOf(".");
+  const lastDot =
+    filename.lastIndexOf(".");
 
   if (
     lastDot === -1 ||
@@ -45,6 +46,10 @@ function getExtension(filename) {
     .slice(lastDot + 1)
     .toLowerCase();
 }
+
+/* =========================================================
+   AUTHORIZE UPLOAD
+========================================================= */
 
 async function authorizeUpload(
   pathname,
@@ -61,10 +66,11 @@ async function authorizeUpload(
   const folder = parts[0];
   const resourceId = parts[1];
 
-  /*
-   * Doctor profile image
-   * ADMIN only.
-   */
+  /* =======================================================
+     DOCTOR PROFILE IMAGE
+     ADMIN ONLY
+  ======================================================= */
+
   if (folder === "doctors") {
     if (appUser.role !== "ADMIN") {
       throw new Error(
@@ -75,10 +81,11 @@ async function authorizeUpload(
     return;
   }
 
-  /*
-   * Medical document
-   * Appointment owner OR ADMIN.
-   */
+  /* =======================================================
+     MEDICAL DOCUMENT
+     APPOINTMENT OWNER OR ADMIN
+  ======================================================= */
+
   if (folder === "medical") {
     const rows = await sql`
       SELECT user_id
@@ -114,6 +121,10 @@ async function authorizeUpload(
   );
 }
 
+/* =========================================================
+   HANDLER
+========================================================= */
+
 export default async function handler(
   req,
   res,
@@ -126,10 +137,10 @@ export default async function handler(
   }
 
   try {
-    /*
-     * Vercel Pages-style API handler:
-     * req.body is already parsed.
-     */
+    /* =====================================================
+       REQUEST BODY
+    ===================================================== */
+
     const {
       resourceId,
       folder = "medical",
@@ -137,6 +148,10 @@ export default async function handler(
       contentType,
       size,
     } = req.body || {};
+
+    /* =====================================================
+       BASIC VALIDATION
+    ===================================================== */
 
     if (!resourceId) {
       return res.status(400).json({
@@ -162,7 +177,9 @@ export default async function handler(
       });
     }
 
-    if (!Number.isFinite(Number(size))) {
+    if (
+      !Number.isFinite(Number(size))
+    ) {
       return res.status(400).json({
         success: false,
         message:
@@ -184,7 +201,17 @@ export default async function handler(
       });
     }
 
-    if (fileSize > MAX_FILE_SIZE) {
+    if (fileSize <= 0) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "File size must be greater than 0.",
+      });
+    }
+
+    if (
+      fileSize > MAX_FILE_SIZE
+    ) {
       return res.status(400).json({
         success: false,
         message:
@@ -204,16 +231,17 @@ export default async function handler(
       });
     }
 
-    const {appUser} =
+    /* =====================================================
+       AUTHENTICATION
+    ===================================================== */
+
+    const { appUser } =
       await requireUser(req);
 
-    /*
-     * Generate a unique pathname OURSELVES.
-     *
-     * We are NOT using Vercel's random suffix.
-     * Therefore the pathname returned here is
-     * exactly the pathname that will exist in Blob.
-     */
+    /* =====================================================
+       CREATE UNIQUE PATHNAME
+    ===================================================== */
+
     const safeName =
       sanitizeFilename(fileName);
 
@@ -229,10 +257,6 @@ export default async function handler(
     const pathname =
       `${folder}/${resourceId}/${timestamp}-${uniqueId}-${safeName}`;
 
-    /*
-     * Remove an unnecessary extension duplication
-     * only if filename handling changes later.
-     */
     if (!extension) {
       console.warn(
         "Upload filename has no extension:",
@@ -240,17 +264,41 @@ export default async function handler(
       );
     }
 
+    /* =====================================================
+       AUTHORIZATION
+    ===================================================== */
+
     await authorizeUpload(
       pathname,
       appUser,
     );
 
-    /*
-     * Create a scoped signed PUT token.
-     */
-    const token =
+    /* =====================================================
+       BLOB CREDENTIAL
+    ===================================================== */
+
+    const blobToken =
+      process.env.BLOB_READ_WRITE_TOKEN;
+
+    if (!blobToken) {
+      throw new Error(
+        "BLOB_READ_WRITE_TOKEN is missing in the Vercel environment.",
+      );
+    }
+
+    /* =====================================================
+       ISSUE SIGNED TOKEN
+       
+       IMPORTANT:
+       Explicit token is passed here.
+    ===================================================== */
+
+    const signedToken =
       await issueSignedToken({
+        token: blobToken,
+
         pathname,
+
         operations: ["put"],
 
         validUntil:
@@ -265,31 +313,37 @@ export default async function handler(
           MAX_FILE_SIZE,
       });
 
-    /*
-     * Generate the actual presigned PUT URL.
-     */
-const {
-  presignedUrl,
-} = await presignUrl(
-  token,
-  {
-    pathname,
+    /* =====================================================
+       CREATE PRESIGNED PUT URL
+    ===================================================== */
 
-    operation: "put",
+    const {
+      presignedUrl,
+    } = await presignUrl(
+      signedToken,
+      {
+        pathname,
 
-    validUntil:
-      Date.now() +
-      15 * 60 * 1000,
+        operation: "put",
 
-    contentType,
+        validUntil:
+          Date.now() +
+          15 * 60 * 1000,
 
-    access: "private",
+        allowedContentTypes: [
+          contentType,
+        ],
 
-    // IMPORTANT:
-    // Do not let Vercel add another suffix.
-    addRandomSuffix: false,
-  },
-);
+        maximumSizeInBytes:
+          MAX_FILE_SIZE,
+
+        access: "private",
+      },
+    );
+
+    /* =====================================================
+       SUCCESS
+    ===================================================== */
 
     return res.status(200).json({
       success: true,
@@ -298,8 +352,8 @@ const {
         presignedUrl,
 
         /*
-         * THIS is the exact Blob pathname.
-         * Save this value to Neon.
+         * Exact pathname that will be
+         * stored in Blob.
          */
         pathname,
 
@@ -318,6 +372,7 @@ const {
 
     return res.status(400).json({
       success: false,
+
       message:
         error instanceof Error
           ? error.message
